@@ -1,24 +1,25 @@
 use std::collections::BTreeMap;
 
+
 #[derive(Debug)]
-struct LocalBookRow {
-    price: f32,
-    quantity: f32,
-    first_update_id: u64,
-    last_update_id: u64,
+pub(crate) struct LocalBookRow {
+    pub(crate) price: f32,
+    pub(crate) quantity: f32,
+    pub(crate) first_update_id: u64,
+    pub(crate) last_update_id: u64,
 }
 
 #[derive(Debug)]
-pub struct LocalBook {
-    last_updated_id: Option<u64>,
-    bids: BTreeMap<u64, LocalBookRow>,
-    asks: BTreeMap<u64, LocalBookRow>,
+pub(crate) struct LocalBook {
+    pub(crate) last_updated_id: u64,
+    pub(crate) bids: BTreeMap<u64, LocalBookRow>,
+    pub(crate) asks: BTreeMap<u64, LocalBookRow>,
 }
 
 impl LocalBook {
     pub fn new() -> Self {
         LocalBook {
-            last_updated_id: Some(0),
+            last_updated_id: 0,
             bids: BTreeMap::new(),
             asks: BTreeMap::new(),
         }
@@ -31,6 +32,9 @@ impl LocalBook {
         first_update_id: u64,
         last_update_id: u64,
     ) {
+        if first_update_id < self.last_updated_id {
+            return
+        }
         if quantity != 0 as f32 {
             self.bids.insert(
                 (price_level * 1000000000.0) as u64,

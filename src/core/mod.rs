@@ -1,6 +1,6 @@
 mod exchange;
-pub mod tokens;
 mod symbol;
+pub mod tokens;
 
 pub use exchange::Exchange;
 pub use symbol::Spot;

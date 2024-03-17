@@ -1,7 +1,7 @@
 #[derive(Clone, Hash, Eq, PartialEq, Debug)]
 pub struct Spot {
-    pub base : &'static str,
-    pub quote : &'static str,
+    pub base: &'static str,
+    pub quote: &'static str,
 }
 
 impl ToString for Spot {

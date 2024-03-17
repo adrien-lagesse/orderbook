@@ -7,14 +7,13 @@ use tokio::runtime::Builder;
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
-use crate::Spot;
-
 use super::process::Process;
 use super::process::ProcessHandle;
 use super::tasks::Task;
-use super::Configuration;
 use super::LocalBook;
-use super::Schedule;
+use crate::binance::Configuration;
+use crate::binance::Schedule;
+use crate::Spot;
 
 pub struct Manager {
     configuration: Configuration,
@@ -33,14 +32,14 @@ impl Manager {
             .build()
             .unwrap();
 
-         Manager {
+        Manager {
             configuration,
             rt: ManuallyDrop::new(rt),
             process_handles: HashMap::new(),
             spot_mapping: HashMap::new(),
             spot_books: HashMap::new(),
         }
-}
+    }
 
     async fn spawn(&mut self, symbol: Spot, task: Task) {
         match task {
@@ -120,9 +119,12 @@ impl Manager {
             }
             Task::Unsubscribe(spot, notifier) => {
                 if let Some(uuid) = self.spot_mapping.get(&symbol) {
-                    self.process_handles.get_mut(uuid).unwrap().spawn(Task::Unsubscribe(spot, notifier.clone()));
+                    self.process_handles
+                        .get_mut(uuid)
+                        .unwrap()
+                        .spawn(Task::Unsubscribe(spot, notifier.clone()));
                     notifier.notified().await;
-                    if self.spot_mapping.iter().filter(|(_,v)| *v == uuid).count() == 1 {
+                    if self.spot_mapping.iter().filter(|(_, v)| *v == uuid).count() == 1 {
                         self.process_handles.remove(uuid).unwrap();
                     }
 
@@ -132,7 +134,10 @@ impl Manager {
             }
             Task::SnapShot(spot, sender) => {
                 if let Some(uuid) = self.spot_mapping.get(&symbol) {
-                    self.process_handles.get_mut(uuid).unwrap().spawn(Task::SnapShot(spot, sender));
+                    self.process_handles
+                        .get_mut(uuid)
+                        .unwrap()
+                        .spawn(Task::SnapShot(spot, sender));
                 }
             }
         }
@@ -152,11 +157,11 @@ impl Manager {
         process_id
     }
 
-
     pub async fn subscribe(&mut self, symbol: &Spot) {
         let (receiver, task) = Task::subscribe(symbol.clone());
         self.spawn(symbol.clone(), task).await;
-        self.spot_books.insert(symbol.clone(), receiver.await.unwrap());
+        self.spot_books
+            .insert(symbol.clone(), receiver.await.unwrap());
     }
 
     pub async fn unsubscribe(&mut self, symbol: &Spot) {
