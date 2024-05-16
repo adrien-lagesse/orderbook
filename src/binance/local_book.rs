@@ -1,6 +1,5 @@
 use std::collections::BTreeMap;
 
-
 #[derive(Debug)]
 pub(crate) struct LocalBookRow {
     pub(crate) price: f32,
@@ -33,7 +32,7 @@ impl LocalBook {
         last_update_id: u64,
     ) {
         if first_update_id < self.last_updated_id {
-            return
+            return;
         }
         if quantity != 0 as f32 {
             self.bids.insert(

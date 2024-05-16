@@ -1,8 +1,10 @@
+#[derive(Debug)]
 pub enum Schedule {
     Balanced(usize),
     MaxPerTask(usize),
 }
 
+#[derive(Debug)]
 pub struct Configuration {
     pub num_threads: usize,
     pub scheduling_strategy: Schedule,

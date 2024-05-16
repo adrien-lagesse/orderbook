@@ -5,6 +5,7 @@ use std::sync::Arc;
 use tokio::runtime;
 use tokio::runtime::Builder;
 use tokio::sync::Mutex;
+use tracing;
 use uuid::Uuid;
 
 use super::process::Process;
@@ -32,6 +33,8 @@ impl Manager {
             .build()
             .unwrap();
 
+        tracing::debug!("Creation of Binance Manager: {configuration:?}");
+
         Manager {
             configuration,
             rt: ManuallyDrop::new(rt),
@@ -42,6 +45,7 @@ impl Manager {
     }
 
     async fn spawn(&mut self, symbol: Spot, task: Task) {
+        tracing::debug!("Spawning {}", task);
         match task {
             Task::Subscribe(_, _) => {
                 // If the manager is already tracking 'symbol' we don't have to suscribe
@@ -53,6 +57,7 @@ impl Manager {
                 match self.configuration.scheduling_strategy {
                     Schedule::Balanced(n) => {
                         if self.process_handles.len() < n {
+                            tracing::debug!("creating new process");
                             let process_id = self.new_process();
                             self.spot_mapping.insert(symbol, process_id);
                             self.process_handles
@@ -82,6 +87,7 @@ impl Manager {
                     Schedule::MaxPerTask(n) => {
                         if self.process_handles.len() == 0 {
                             let process_id = self.new_process();
+                            tracing::debug!("creating new process");
                             self.spot_mapping.insert(symbol, process_id);
                             self.process_handles
                                 .get_mut(&process_id)
@@ -99,7 +105,7 @@ impl Manager {
                             }
                             let min_process =
                                 uuid_count.iter().min_by(|x, y| x.1.cmp(y.1)).unwrap();
-                            if min_process.1 < &n {
+                            if *min_process.1 < n {
                                 self.spot_mapping.insert(symbol, min_process.0.clone());
                                 self.process_handles
                                     .get_mut(&min_process.0)
@@ -125,6 +131,7 @@ impl Manager {
                         .spawn(Task::Unsubscribe(spot, notifier.clone()));
                     notifier.notified().await;
                     if self.spot_mapping.iter().filter(|(_, v)| *v == uuid).count() == 1 {
+                        tracing::debug!("deleting process");
                         self.process_handles.remove(uuid).unwrap();
                     }
 

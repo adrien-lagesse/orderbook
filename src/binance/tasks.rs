@@ -1,3 +1,4 @@
+use std::fmt::Display;
 use std::sync::Arc;
 
 use tokio::sync::oneshot;
@@ -27,5 +28,15 @@ impl Task {
     pub fn unsubscribe(spot: Spot) -> (Arc<Notify>, Self) {
         let notify = Arc::new(Notify::new());
         (notify.clone(), Task::Unsubscribe(spot, notify))
+    }
+}
+
+impl Display for Task {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Task::Subscribe(symbol, _) => write!(f, "Task::Subscribe({})", symbol.to_string()),
+            Task::SnapShot(symbol, _) => write!(f, "Task::Snapshot({})", symbol.to_string()),
+            Task::Unsubscribe(symbol, _) => write!(f, "Task::Unsubscribe({})", symbol.to_string()),
+        }
     }
 }
