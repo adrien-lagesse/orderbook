@@ -29,7 +29,7 @@ pub mod outgoing {
         .to_string()
     }
 
-    pub fn unsubscribe(symbol: Spot, task_id: &Uuid) -> String {
+    pub fn unsubscribe(symbol: &Spot, task_id: &Uuid) -> String {
         json!({
         "method": "UNSUBSCRIBE",
         "params":
@@ -61,26 +61,26 @@ pub mod incoming {
     use serde_json::Value;
 
     #[derive(Deserialize)]
-    struct RequestResponse {
-        result: Value,
-        id: String,
+    pub struct RequestResponse {
+        pub result: Value,
+        pub id: String,
     }
 
     #[derive(Deserialize)]
-    struct Level(f64, f64);
+    pub struct Level(String, String);
 
     impl Level {
-        fn price(&self) -> f64 {
-            self.0
+        pub fn price(&self) -> f32 {
+            self.0.parse().unwrap()
         }
 
-        fn quantity(&self) -> f64 {
-            self.1
+        pub fn quantity(&self) -> f32 {
+            self.1.parse().unwrap()
         }
     }
 
     #[derive(Deserialize)]
-    struct DepthUpdate {
+    struct DepthUpdateInner {
         #[serde(rename = "e")]
         event_type: String,
 
@@ -104,6 +104,41 @@ pub mod incoming {
     }
 
     #[derive(Deserialize)]
+    pub struct DepthUpdate {
+        stream: String,
+        data: DepthUpdateInner,
+    }
+
+    impl DepthUpdate {
+        pub fn get_symbol_str(&self) -> &str {
+            // the stream variable is 'symbol@depth@timestamp'
+            self.stream.split("@").collect::<Vec<&str>>()[0]
+
+            // self.data.symbol // we might consider using this
+        }
+
+        pub fn get_event_time(&self) -> u64 {
+            self.data.event_time
+        }
+
+        pub fn get_first_update_id(&self) -> u64 {
+            self.data.first_update_id
+        }
+
+        pub fn get_last_update_id(&self) -> u64 {
+            self.data.last_update_id
+        }
+
+        pub fn get_bids(&self) -> &Vec<Level> {
+            &self.data.bids
+        }
+
+        pub fn get_asks(&self) -> &Vec<Level> {
+            &self.data.asks
+        }
+    }
+
+    #[derive(Deserialize)]
     struct SnapShot {
         #[serde(rename = "lastUpdateId")]
         last_update_id: u64,
@@ -111,5 +146,13 @@ pub mod incoming {
         bids: Vec<Level>,
 
         asks: Vec<Level>,
+    }
+
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    pub enum IncomingMessage {
+        Response(RequestResponse),
+        DepthUpdate(DepthUpdate),
+        Other(Value),
     }
 }

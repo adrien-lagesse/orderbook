@@ -33,8 +33,6 @@ impl Manager {
             .build()
             .unwrap();
 
-        tracing::debug!("Creation of Binance Manager: {configuration:?}");
-
         Manager {
             configuration,
             rt: ManuallyDrop::new(rt),
@@ -44,108 +42,107 @@ impl Manager {
         }
     }
 
-    async fn spawn(&mut self, symbol: Spot, task: Task) {
-        tracing::debug!("Spawning {}", task);
+    fn register_symbol(&mut self, symbol: &Spot, process_id: Uuid, book: Arc<Mutex<LocalBook>>) {
+        self.spot_mapping.insert(symbol.clone(), process_id);
+        self.spot_books.insert(symbol.clone(), book);
+    }
+
+    fn unregister_symbol(&mut self, symbol: &Spot, process_id: Uuid) {
+        self.spot_mapping.remove(symbol).unwrap();
+        self.spot_books.remove(symbol).unwrap();
+        if !self.spot_mapping.values().any(|id| process_id == *id) {
+            self.process_handles.remove(&process_id).unwrap();
+        }
+    }
+
+    fn least_used_process(&mut self) -> Option<(Uuid, usize)> {
+        let mut uuid_count: HashMap<Uuid, usize> = HashMap::new();
+        for (_, v) in &self.spot_mapping {
+            match uuid_count.get_mut(v) {
+                Some(n) => *n = *n + 1,
+                None => {
+                    uuid_count.insert(v.clone(), 1);
+                }
+            }
+        }
+        let (process_id, nb_symbols) = uuid_count.iter().min_by(|x, y| x.1.cmp(y.1))?;
+        Some((*process_id, *nb_symbols))
+    }
+
+    fn spawn(&mut self, task: Task) -> crate::Result<Uuid> {
         match task {
-            Task::Subscribe(_, _) => {
+            Task::Subscribe(symbol, sender) => {
                 // If the manager is already tracking 'symbol' we don't have to suscribe
                 if self.spot_mapping.contains_key(&symbol) {
-                    todo!();
+                    return Err(crate::Error::AlreadyTracked { symbol });
                 }
 
                 // Otherwise depending on the strategy, we might have to create a new process
                 match self.configuration.scheduling_strategy {
+                    Schedule::Balanced(n) if self.process_handles.len() < n => {
+                        let process_id = self.new_process();
+                        self.process_handles
+                            .get_mut(&process_id)
+                            .unwrap()
+                            .spawn(Task::Subscribe(symbol, sender));
+                        return Ok(process_id);
+                    }
                     Schedule::Balanced(n) => {
-                        if self.process_handles.len() < n {
-                            tracing::debug!("creating new process");
-                            let process_id = self.new_process();
-                            self.spot_mapping.insert(symbol, process_id);
-                            self.process_handles
-                                .get_mut(&process_id)
-                                .unwrap()
-                                .spawn(task);
-                        } else {
-                            let mut uuid_count: HashMap<Uuid, usize> = HashMap::new();
-                            for (_, v) in &self.spot_mapping {
-                                match uuid_count.get_mut(v) {
-                                    Some(n) => *n = *n + 1,
-                                    None => {
-                                        uuid_count.insert(v.clone(), 1);
-                                    }
-                                }
-                            }
-                            let process_id =
-                                uuid_count.iter().min_by(|x, y| x.1.cmp(y.1)).unwrap().0;
-
-                            self.spot_mapping.insert(symbol, process_id.clone());
-                            self.process_handles
-                                .get_mut(&process_id)
-                                .unwrap()
-                                .spawn(task);
-                        }
+                        let (process_id, _) = self.least_used_process().unwrap();
+                        self.process_handles
+                            .get_mut(&process_id)
+                            .unwrap()
+                            .spawn(Task::Subscribe(symbol, sender));
+                        return Ok(process_id);
+                    }
+                    Schedule::MaxPerTask(n) if self.process_handles.len() == 0 => {
+                        let process_id = self.new_process();
+                        self.process_handles
+                            .get_mut(&process_id)
+                            .unwrap()
+                            .spawn(Task::Subscribe(symbol, sender));
+                        return Ok(process_id);
                     }
                     Schedule::MaxPerTask(n) => {
-                        if self.process_handles.len() == 0 {
-                            let process_id = self.new_process();
-                            tracing::debug!("creating new process");
-                            self.spot_mapping.insert(symbol, process_id);
+                        let (process_id, nb_symbols) = self.least_used_process().unwrap();
+                        if nb_symbols < n {
                             self.process_handles
                                 .get_mut(&process_id)
                                 .unwrap()
-                                .spawn(task);
+                                .spawn(Task::Subscribe(symbol, sender));
+                            return Ok(process_id);
                         } else {
-                            let mut uuid_count: HashMap<Uuid, usize> = HashMap::new();
-                            for (_, v) in &self.spot_mapping {
-                                match uuid_count.get_mut(v) {
-                                    Some(n) => *n = *n + 1,
-                                    None => {
-                                        uuid_count.insert(v.clone(), 1);
-                                    }
-                                }
-                            }
-                            let min_process =
-                                uuid_count.iter().min_by(|x, y| x.1.cmp(y.1)).unwrap();
-                            if *min_process.1 < n {
-                                self.spot_mapping.insert(symbol, min_process.0.clone());
-                                self.process_handles
-                                    .get_mut(&min_process.0)
-                                    .unwrap()
-                                    .spawn(task);
-                            } else {
-                                let process_id = self.new_process();
-                                self.spot_mapping.insert(symbol, process_id);
-                                self.process_handles
-                                    .get_mut(&process_id)
-                                    .unwrap()
-                                    .spawn(task);
-                            }
+                            let process_id = self.new_process();
+                            self.process_handles
+                                .get_mut(&process_id)
+                                .unwrap()
+                                .spawn(Task::Subscribe(symbol, sender));
+                            return Ok(process_id);
                         }
                     }
                 }
             }
-            Task::Unsubscribe(spot, notifier) => {
-                if let Some(uuid) = self.spot_mapping.get(&symbol) {
-                    self.process_handles
-                        .get_mut(uuid)
-                        .unwrap()
-                        .spawn(Task::Unsubscribe(spot, notifier.clone()));
-                    notifier.notified().await;
-                    if self.spot_mapping.iter().filter(|(_, v)| *v == uuid).count() == 1 {
-                        tracing::debug!("deleting process");
-                        self.process_handles.remove(uuid).unwrap();
-                    }
-
-                    self.spot_mapping.remove(&symbol).unwrap();
-                    self.spot_books.remove(&symbol).unwrap();
-                }
+            Task::Unsubscribe(symbol, sender) => {
+                let process_id = self
+                    .spot_mapping
+                    .get(&symbol)
+                    .ok_or(crate::Error::NotTracked { symbol: symbol.clone() })?;
+                self.process_handles
+                    .get_mut(&process_id)
+                    .unwrap()
+                    .spawn(Task::Unsubscribe(symbol, sender));
+                return Ok(*process_id);
             }
-            Task::SnapShot(spot, sender) => {
-                if let Some(uuid) = self.spot_mapping.get(&symbol) {
-                    self.process_handles
-                        .get_mut(uuid)
-                        .unwrap()
-                        .spawn(Task::SnapShot(spot, sender));
-                }
+            Task::SnapShot(symbol, sender) => {
+                let process_id = self
+                    .spot_mapping
+                    .get(&symbol)
+                    .ok_or(crate::Error::NotTracked { symbol: symbol.clone() })?;
+                self.process_handles
+                    .get_mut(process_id)
+                    .unwrap()
+                    .spawn(Task::SnapShot(symbol, sender));
+                return Ok(*process_id);
             }
         }
     }
@@ -153,7 +150,7 @@ impl Manager {
     fn new_process(&mut self) -> Uuid {
         let process_id = Uuid::new_v4();
 
-        let (mut process, task_transmitter) = Process::new();
+        let (mut process, task_transmitter) = Process::new(&process_id.to_string());
 
         let tokio_handle = self.rt.spawn(async move {
             process.run().await;
@@ -164,23 +161,27 @@ impl Manager {
         process_id
     }
 
-    pub async fn subscribe(&mut self, symbol: &Spot) {
-        let (receiver, task) = Task::subscribe(symbol.clone());
-        self.spawn(symbol.clone(), task).await;
-        self.spot_books
-            .insert(symbol.clone(), receiver.await.unwrap());
-    }
-
-    pub async fn unsubscribe(&mut self, symbol: &Spot) {
-        let (notifier, task) = Task::unsubscribe(symbol.clone());
-        self.spawn(symbol.clone(), task).await;
-        notifier.notified().await;
-    }
-
-    pub async fn force_snapshot(&mut self, symbol: &Spot) {
+    pub async fn force_snapshot(&mut self, symbol: &Spot) -> crate::Result<()> {
         let (receiver, task) = Task::snapshot(symbol.clone());
-        self.spawn(symbol.clone(), task).await;
-        let _ = receiver.await.unwrap();
+        self.spawn(task)?;
+        receiver.await.unwrap()?;
+        Ok(())
+    }
+
+    pub async fn subscribe(&mut self, symbol: &Spot) -> crate::Result<()> {
+        let (receiver, task) = Task::subscribe(symbol.clone());
+        let process_id = self.spawn(task)?;
+        self.register_symbol(&symbol, process_id, receiver.await.unwrap()?);
+        self.force_snapshot(symbol).await?;
+        Ok(())
+    }
+
+    pub async fn unsubscribe(&mut self, symbol: &Spot) -> crate::Result<()> {
+        let (receiver, task) = Task::unsubscribe(symbol.clone());
+        let process_id = self.spawn(task)?;
+        self.unregister_symbol(symbol, process_id);
+        receiver.await.unwrap()?;
+        Ok(())
     }
 
     pub async fn get_price(&mut self, symbol: &Spot) -> Option<f32> {
