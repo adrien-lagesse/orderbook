@@ -6,19 +6,33 @@ use orderbook::tokens;
 use orderbook::Spot;
 use tracing;
 use tracing_subscriber;
+use tracing_subscriber::fmt::format::FmtSpan;
+use tracing_subscriber::util::SubscriberInitExt;
+use uuid::Uuid;
 
 const BTCUSDT: Spot = Spot {
     base: tokens::USDT,
     quote: tokens::BTC,
 };
 
+const ETHUSDT: Spot = Spot {
+    base: tokens::USDT,
+    quote: tokens::ETH,
+};
+
 #[tokio::main]
 async fn main() {
-    tracing_subscriber::fmt::init();
+    let _subscriber = tracing_subscriber::fmt::init();
+        // // .json()
+        // // .flatten_event(true)
+        // .finish()
+        // .try_init()
+        // .unwrap();
 
-    tracing::info!("Starting the manager");
+
     let mut binance_manager = Manager::new(Configuration::new());
-    binance_manager.subscribe(&BTCUSDT).await;
+    binance_manager.subscribe(&BTCUSDT).await.unwrap();
+    binance_manager.subscribe(&ETHUSDT).await.unwrap();
 
     for _ in 0..24 {
         std::thread::sleep(std::time::Duration::from_millis(5000));

@@ -8,23 +8,23 @@ use crate::binance::LocalBook;
 use crate::Spot;
 
 pub enum Task {
-    Subscribe(Spot, oneshot::Sender<Arc<Mutex<LocalBook>>>),
-    SnapShot(Spot, oneshot::Sender<Arc<Mutex<LocalBook>>>),
-    Unsubscribe(Spot, oneshot::Sender<()>),
+    Subscribe(Spot, oneshot::Sender<crate::Result<Arc<Mutex<LocalBook>>>>),
+    SnapShot(Spot, oneshot::Sender<crate::Result<()>>),
+    Unsubscribe(Spot, oneshot::Sender<crate::Result<()>>),
 }
 
 impl Task {
-    pub fn subscribe(spot: Spot) -> (oneshot::Receiver<Arc<Mutex<LocalBook>>>, Self) {
+    pub fn subscribe(spot: Spot) -> (oneshot::Receiver<crate::Result<Arc<Mutex<LocalBook>>>>, Self) {
         let (sender, receiver) = oneshot::channel();
         (receiver, Task::Subscribe(spot, sender))
     }
 
-    pub fn snapshot(spot: Spot) -> (oneshot::Receiver<Arc<Mutex<LocalBook>>>, Self) {
+    pub fn snapshot(spot: Spot) -> (oneshot::Receiver<crate::Result<()>>, Self) {
         let (sender, receiver) = oneshot::channel();
         (receiver, Task::SnapShot(spot, sender))
     }
 
-    pub fn unsubscribe(spot: Spot) -> (oneshot::Receiver<()>, Self) {
+    pub fn unsubscribe(spot: Spot) -> (oneshot::Receiver<crate::Result<()>>, Self) {
         let (sender, receiver) = oneshot::channel();
         (receiver, Task::Unsubscribe(spot, sender))
     }
